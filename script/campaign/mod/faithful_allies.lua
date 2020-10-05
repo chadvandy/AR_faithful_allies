@@ -122,7 +122,7 @@ local function init()
                     
                     if not region_owner:is_human() and region_owner:is_ally_vassal_or_client_state_of(og_owner_obj)  then
                         cm:transfer_region_to_faction(region_key, og_owner_key);
-                        cm:show_message_event_located(og_owner_key, "event_feed_strings_text_alliesreturn_title", "factions_screen_name_wh_main_a", "event_feed_strings_text_alliesreturn_secondary_detail", logical_position_x, logical_position_y, false, 1311);
+                        cm:show_message_event_located(og_owner_key, "event_feed_strings_text_alliesreturn_title", "faithful_allies", "event_feed_strings_text_alliesreturn_secondary_detail", logical_position_x, logical_position_y, false, 1311);
                     end;
                 else
                     -- skip this one
