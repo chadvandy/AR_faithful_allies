@@ -96,7 +96,12 @@ local function init()
         function(context) 
             return context:faction():is_human() == true; 
         end,
-	    function()
+        function(context)
+            local current_player = context:faction()
+            local current_player_key = current_player:name()
+
+            local player_regions = player_owned_regions[current_player_key]
+
 			local region_list = cm:model():world():region_manager():region_list();
 			for i = 0, region_list:num_items() - 1 do
                 local current_region = region_list:item_at(i);
@@ -106,14 +111,12 @@ local function init()
                 -- test if the region is owned
                 local og_owner_key = nil
 
-                for k,reg_list in pairs(player_owned_regions) do
-                    if reg_list[region_key] == true then
-                        og_owner_key = k
-                    end
+                if player_regions[region_key] == true then
+                    og_owner_key = current_player_key
                 end
 
                 if og_owner_key then
-                    local og_owner_obj = cm:get_faction(og_owner_key)
+                    local og_owner_obj = current_player --cm:get_faction(og_owner_key)
                     local region_owner = current_region:owning_faction()
                     
                     local selected_settlement = current_region:settlement()
