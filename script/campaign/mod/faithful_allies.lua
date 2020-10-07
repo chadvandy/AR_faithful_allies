@@ -2,10 +2,17 @@
 -- ie., player_owned_regions["wh_main_emp_empire"]["wh_main_reikland_altdorf"] = true
 local player_owned_regions = nil
 
+local return_details = {}
+
+local oldModLog = ModLog
+local ModLog = function(text) oldModLog("[Faithful Allies] " .. text) end
+
 local function init()
 
     if cm:is_new_game() or player_owned_regions == nil then
         local human_factions = cm:get_human_factions()
+
+        player_owned_regions = {}
 
         for i = 1, #human_factions do
             local faction_key = human_factions[i]
@@ -13,10 +20,14 @@ local function init()
 
             player_owned_regions[faction_key] = {}
 
+            ModLog("creating player owned region table for faction ["..faction_key.."].")
+
             local region_list = faction_obj:region_list()
             for j = 0, region_list:num_items() - 1 do
                 local region = region_list:item_at(j)
                 local region_key = region:name()
+
+                ModLog("adding ["..region_key.."].")
 
                 player_owned_regions[faction_key][region_key] = true
             end
@@ -53,6 +64,8 @@ local function init()
                 end
             end
 
+            ModLog("adding ["..region_key.."] to faction table ["..faction_key.."].")
+
             -- add it to the table for the new owner
             player_owned_regions[faction_key][region_key] = true
         end,
@@ -66,24 +79,25 @@ local function init()
         function(context)
             local is_players = false
             local region_key = context:region():name()
-            for _,region_list in pairs(player_owned_regions) do
+            for k,region_list in pairs(player_owned_regions) do
                 if region_list[region_key] then
                     is_players = true
                 end
             end
             
+            -- TODO this triggers for all transfer_region_to_faction calls; look into some way around that or sumin
             return is_players and context:reason() == "payload"
         end,
         function(context)
-
             local region_key = context:region():name()
+
+            ModLog("removing "..region_key.." from all player owned regions")
 
             for k,region_list in pairs(player_owned_regions) do
                 if region_list[region_key] then
                     player_owned_regions[k][region_key] = nil
                 end
             end
-
         end,
         true
     );
@@ -94,46 +108,92 @@ local function init()
 		"ally_give_back_cities",
 		"FactionTurnStart",
         function(context) 
-            return context:faction():is_human() == true; 
+            return context:faction():is_human() == true;
         end,
         function(context)
             local current_player = context:faction()
             local current_player_key = current_player:name()
 
+            ModLog("checking player list for ["..current_player_key.."].")
+
             local player_regions = player_owned_regions[current_player_key]
 
-			local region_list = cm:model():world():region_manager():region_list();
-			for i = 0, region_list:num_items() - 1 do
-                local current_region = region_list:item_at(i);
+            for region_key,_ in pairs(player_regions) do
+                ModLog("checking region ["..region_key.."].")
                 
-                local region_key = current_region:name();
-                
-                -- test if the region is owned
-                local og_owner_key = nil
+                local region_obj = cm:get_region(region_key)
 
-                if player_regions[region_key] == true then
-                    og_owner_key = current_player_key
-                end
-
-                if og_owner_key then
-                    local og_owner_obj = current_player --cm:get_faction(og_owner_key)
-                    local region_owner = current_region:owning_faction()
-                    
-                    local selected_settlement = current_region:settlement()
-                    local logical_position_x = selected_settlement:logical_position_x();
-                    local logical_position_y = selected_settlement:logical_position_y();
-                    
-                    if not region_owner:is_human() and region_owner:is_ally_vassal_or_client_state_of(og_owner_obj)  then
-                        cm:transfer_region_to_faction(region_key, og_owner_key);
-                        cm:show_message_event_located(og_owner_key, "event_feed_strings_text_alliesreturn_title", "faithful_allies", "event_feed_strings_text_alliesreturn_secondary_detail", logical_position_x, logical_position_y, false, 1311);
-                    end;
+                if region_obj:is_abandoned() then
+                    -- do naught
                 else
-                    -- skip this one
+                    ModLog("region is not abandoned")
+                    local owning_faction = region_obj:owning_faction()
+                    local owning_faction_key = owning_faction:name()
+
+                    ModLog("owner is: "..owning_faction_key)
+
+                    if owning_faction_key ~= current_player_key and not owning_faction:is_human() then
+                        ModLog("not human!")
+                        if owning_faction:is_ally_vassal_or_client_state_of(current_player) then
+                            ModLog("allied!")
+
+                            ModLog("triggering the dilemma")
+                            local first_cqi = current_player:command_queue_index()
+                            local second_cqi = owning_faction:command_queue_index()
+                            local region_cqi = region_obj:cqi()
+    
+                            cm:trigger_dilemma_with_targets(first_cqi, "faithful_allies_return_region", first_cqi, second_cqi, 0, 0, region_cqi, 0)
+    
+                            ModLog("triggered dilemma")
+    
+                            return_details["region_key"] = region_key
+                            return_details["original_owner"] = current_player_key
+                            return_details["new_owner"] = owning_faction:name()
+                        end
+                    end
                 end
-			end;
+            end
 		end,
 		true
     );
+
+    -- listener for the dilemma propa
+    core:add_listener(
+        "faithful_allies_dilemma",
+        "DilemmaChoiceMadeEvent",
+        function(context)
+            ModLog("dilemma choice made event trigger'd")
+            return context:dilemma() == "faithful_allies_return_region"
+        end,
+        function(context)
+            ModLog("dilemma choice made'd")
+
+            local choice = context:choice()
+
+            local region_key = return_details.region_key
+            local og_owner_key = return_details.original_owner
+            local new_owner_key = return_details.new_owner
+
+            if choice == 0 then
+                ModLog("returning ["..region_key.."] to player ["..og_owner_key.."]")
+                -- og owner wants it back!
+                local region = cm:get_region(region_key)
+                local settlement = region:settlement()
+
+                local logical_position_x = settlement:logical_position_x();
+                local logical_position_y = settlement:logical_position_y();
+
+                cm:transfer_region_to_faction(region_key, og_owner_key);
+                cm:show_message_event_located(og_owner_key, "event_feed_strings_text_alliesreturn_title", "faithful_allies", "event_feed_strings_text_alliesreturn_secondary_detail", logical_position_x, logical_position_y, false, 1311);
+                ModLog("done")
+            else
+                -- ally can keep it; do nothing (?)
+            end
+
+            return_details = {}
+        end,
+        true
+    )
 end
 
 cm:add_first_tick_callback(init)
