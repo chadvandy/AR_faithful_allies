@@ -187,8 +187,11 @@ local function init()
                 cm:show_message_event_located(og_owner_key, "event_feed_strings_text_alliesreturn_title", "faithful_allies", "event_feed_strings_text_alliesreturn_secondary_detail", logical_position_x, logical_position_y, false, 1311);
                 ModLog("done")
             else
-                -- ally can keep it; do nothing (?)
+                -- ally can keep it; do nothing(?)
             end
+
+            -- remove the region from the player region list!
+            player_owned_regions[og_owner_key][region_key] = nil
 
             return_details = {}
         end,
